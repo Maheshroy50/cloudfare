@@ -1,5 +1,5 @@
 const workerUrl =
-  "mahesh-backend-worker.maheshbhoopathi.workers.dev";
+    "https://mahesh-backend-worker.maheshbhoopathi.workers.dev";
 
 document.getElementById("btn").addEventListener("click", async () => {
   const output = document.getElementById("output");
