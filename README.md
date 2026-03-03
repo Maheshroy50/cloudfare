@@ -1,171 +1,311 @@
-# 🚀 Cloudflare Full-Stack Demo — Terraform Deployment
+# ☁️ Cloudflare Full-Stack Deployment with Terraform
 
-Deploy a **static frontend** to **Cloudflare Pages** and a **backend API** to **Cloudflare Workers**, fully managed with **modular Terraform**.
+> **Infrastructure-as-Code deployment of a full-stack application on Cloudflare's edge network — Workers (Backend) + Pages (Frontend), fully automated with modular Terraform and a single deploy script.**
 
 ---
 
-## 📐 Architecture
+## 📋 Table of Contents
+
+- [Architecture](#-architecture)
+- [Tech Stack](#-tech-stack)
+- [Project Structure](#-project-structure)
+- [Prerequisites](#-prerequisites)
+- [Getting Started](#-getting-started)
+- [One-Command Deployment](#-one-command-deployment)
+- [What the Deploy Script Does](#-what-the-deploy-script-does)
+- [Terraform Modules](#-terraform-modules)
+- [How It Works End-to-End](#-how-it-works-end-to-end)
+- [Common Operations](#-common-operations)
+- [Security Notes](#-security-notes)
+
+---
+
+## 🏗 Architecture
 
 ```
-┌──────────────┐         HTTPS          ┌──────────────────┐
-│   Browser    │ ──────────────────────► │  Cloudflare      │
-│              │                         │  Pages (Frontend) │
-│              │                         │  *.pages.dev      │
-└──────┬───────┘                         └──────────────────┘
-       │
-       │  fetch("/api")
-       ▼
-┌──────────────────┐
-│  Cloudflare      │
-│  Worker (Backend) │
-│  *.workers.dev    │
-└──────────────────┘
+                    ┌─────────────────────────────────────────────────────┐
+                    │                  Cloudflare Edge                   │
+                    │                                                     │
+┌──────────┐       │   ┌──────────────────┐     ┌──────────────────┐    │
+│          │  HTTPS │   │  Pages (Frontend) │     │ Workers (Backend) │    │
+│  Browser │──────────► │  *.pages.dev     │────►│ *.workers.dev     │    │
+│          │       │   │  Static HTML/CSS  │     │  REST API         │    │
+└──────────┘       │   └──────────────────┘     └──────────────────┘    │
+                    │                                                     │
+                    └─────────────────────────────────────────────────────┘
+                                         │
+                                         │ Managed by
+                                         ▼
+                                ┌──────────────────┐
+                                │    Terraform      │
+                                │  (IaC - Modular)  │
+                                └──────────────────┘
 ```
 
-| Layer    | Technology        | Files                          | URL Pattern          |
-| -------- | ----------------- | ------------------------------ | -------------------- |
-| Frontend | Cloudflare Pages  | `index.html`, `script.js`, `style.css` | `<name>.pages.dev`   |
-| Backend  | Cloudflare Workers | `terraform/worker-src/index.js` | `<name>.workers.dev` |
+| Layer          | Service             | Description                                      | URL                                     |
+|----------------|---------------------|--------------------------------------------------|------------------------------------------|
+| **Frontend**   | Cloudflare Pages    | Static site (`index.html`, `style.css`, `script.js`) | `https://mahesh-frontend.pages.dev`     |
+| **Backend**    | Cloudflare Workers  | Serverless API (`worker-src/index.js`)           | `https://mahesh-backend-worker.maheshbhoopathi.workers.dev` |
+| **Infra**      | Terraform           | Provisions and manages all Cloudflare resources  | —                                        |
 
 ---
 
+## � Tech Stack
+
+| Tool             | Purpose                                  |
+|------------------|------------------------------------------|
+| **Terraform**    | Infrastructure as Code — provisions Workers + Pages |
+| **Cloudflare Workers** | Serverless backend (V8 isolates at the edge) |
+| **Cloudflare Pages**   | Static frontend hosting with global CDN  |
+| **Wrangler CLI** | Deploys frontend assets to Pages         |
+| **Bash**         | Automation deploy script                 |
 
 ---
 
-## 🚀 Deployment Steps
+## 📁 Project Structure
 
-### 1. Configure Variables
+```
+cloudfare/
+├── index.html                          # Frontend — HTML
+├── style.css                           # Frontend — Styles
+├── script.js                           # Frontend — JS (calls backend)
+├── deploy.sh                           # 🚀 One-command deploy script
+│
+└── terraform/
+    ├── providers.tf                    # Cloudflare provider config (v4)
+    ├── variables.tf                    # Root input variables
+    ├── main.tf                         # Root module — wires workers + pages
+    ├── outputs.tf                      # Deployment URLs & summary
+    ├── terraform.tfvars.example        # Template for credentials
+    │
+    ├── worker-src/
+    │   └── index.js                    # Worker source code (backend API)
+    │
+    └── modules/
+        ├── workers/                    # Worker module
+        │   ├── main.tf                 #   → cloudflare_workers_script
+        │   ├── variables.tf            #   → module inputs
+        │   └── outputs.tf              #   → worker_name, worker_url
+        │
+        └── pages/                      # Pages module
+            ├── main.tf                 #   → cloudflare_pages_project
+            ├── variables.tf            #   → module inputs
+            └── outputs.tf              #   → pages_url, pages_subdomain
+```
+
+---
+
+## ✅ Prerequisites
+
+| Requirement       | Version   | Install                                              |
+|-------------------|-----------|------------------------------------------------------|
+| Terraform         | ≥ 1.5.0   | [terraform.io/install](https://developer.hashicorp.com/terraform/install) |
+| Node.js + npm     | ≥ 18      | [nodejs.org](https://nodejs.org)                     |
+| Cloudflare Account | —        | [dash.cloudflare.com](https://dash.cloudflare.com)   |
+
+**Cloudflare API Token** — Create one with these permissions:
+- `Workers Scripts: Edit`
+- `Cloudflare Pages: Edit`
+- `Account Settings: Read`
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone the repository
 
 ```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
+git clone https://github.com/your-username/cloudfare.git
+cd cloudfare
 ```
 
-Edit `terraform.tfvars` with your actual values:
+### 2. Configure credentials
+
+```bash
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+```
+
+Edit `terraform/terraform.tfvars`:
 
 ```hcl
-cloudflare_api_token  = "your-actual-api-token"
-cloudflare_account_id = "your-actual-account-id"
-worker_name           = "mahesh-backend-worker"
-pages_project_name    = "mahesh-frontend"
-environment           = "production"
+# REQUIRED
+cloudflare_api_token  = "your-api-token"
+cloudflare_account_id = "your-account-id"
+workers_subdomain     = "your-subdomain"     # Found in dashboard → Workers & Pages
 ```
 
-### 2. Initialize Terraform
+> **💡 Where to find these values:**
+> - **API Token** → Cloudflare Dashboard → My Profile → API Tokens → Create Token
+> - **Account ID** → Dashboard → Overview → right sidebar
+> - **Workers Subdomain** → Dashboard → Workers & Pages → your subdomain (e.g. `maheshbhoopathi`)
+
+### 3. Deploy
 
 ```bash
-terraform init
+./deploy.sh
 ```
 
-This downloads the Cloudflare provider plugin.
+That's it! Both backend and frontend will be live.
 
-### 3. Review the Plan
+---
+
+## ⚡ One-Command Deployment
 
 ```bash
-terraform plan
+./deploy.sh
 ```
 
-You'll see the resources to be created:
-- `cloudflare_worker_script.backend`
-- `cloudflare_pages_project.frontend`
-
-### 4. Deploy
-
-```bash
-terraform apply
-```
-
-Type `yes` to confirm. Terraform will output:
+The script automates the **entire pipeline** — no manual steps required:
 
 ```
-worker_url  = "https://mahesh-backend-worker.<account>.workers.dev"
-pages_url   = "https://mahesh-frontend.pages.dev"
+ ▶ Initializing Terraform...
+ ✔ Terraform initialized
+ ▶ Validating Terraform configuration...
+ ✔ Configuration valid
+ ▶ Planning infrastructure changes...
+ ✔ Plan complete
+ ▶ Applying infrastructure (Worker + Pages project)...
+ ✔ Infrastructure deployed
+ ▶ Preparing frontend build...
+ ✔ Frontend build ready (Worker URL injected)
+ ▶ Deploying frontend assets to Cloudflare Pages...
+ ✔ Frontend deployed to Pages
+
+ ╔══════════════════════════════════════════════╗
+ ║         🚀 Deployment Complete!              ║
+ ╠══════════════════════════════════════════════╣
+ ║  Backend:  https://mahesh-backend-worker.maheshbhoopathi.workers.dev
+ ║  Frontend: https://mahesh-frontend.pages.dev
+ ╚══════════════════════════════════════════════╝
 ```
 
-### 5. Update Frontend Worker URL
+---
 
-After deploy, copy the `worker_url` from the output and update `script.js`:
+## 🔧 What the Deploy Script Does
 
-```javascript
-const workerUrl = "https://mahesh-backend-worker.<account>.workers.dev";
-```
+The `deploy.sh` script runs **7 automated steps**:
 
-Then redeploy Pages (or push to git if using git integration).
+| Step | Action                        | Tool       | What Happens                                                  |
+|------|-------------------------------|------------|---------------------------------------------------------------|
+| 1    | **Initialize**                | Terraform  | Downloads Cloudflare provider, initializes modules            |
+| 2    | **Validate**                  | Terraform  | Checks all `.tf` files for syntax/config errors               |
+| 3    | **Plan**                      | Terraform  | Previews resources to be created/updated                      |
+| 4    | **Apply**                     | Terraform  | Deploys Worker script + creates Pages project + enables workers.dev |
+| 5    | **Build**                     | Bash       | Copies frontend files to `_build/`, injects Worker URL into `script.js` |
+| 6    | **Deploy Frontend**           | Wrangler   | Uploads `_build/` to Cloudflare Pages                         |
+| 7    | **Cleanup**                   | Bash       | Removes `_build/` temp directory                              |
 
-### 6. Upload Frontend to Pages
-
-Since we use `direct_upload`, push your static files via the Cloudflare dashboard or Wrangler CLI:
-
-```bash
-# From the project root (cloudfare/)
-npx wrangler pages deploy . --project-name=mahesh-frontend
-```
+> **Why a `_build` directory?** Deploying directly from the project root would upload the `terraform/.terraform/` folder (45+ MB provider binaries), which exceeds Cloudflare Pages' 25 MB file size limit. The build step copies only the 3 frontend files.
 
 ---
 
 ## 🧩 Terraform Modules
 
-### `modules/workers`
+### `modules/workers` — Backend API
 
-Deploys a Cloudflare Worker script with optional custom route.
+Deploys a Cloudflare Worker script and automatically enables the `*.workers.dev` subdomain.
 
-| Variable         | Required | Default        | Description                        |
-| ---------------- | -------- | -------------- | ---------------------------------- |
-| `account_id`     | ✅       | —              | Cloudflare Account ID              |
-| `worker_name`    | ✅       | —              | Worker script name                 |
-| `script_content` | ✅       | —              | JavaScript source code             |
-| `environment`    | ❌       | `"production"` | Environment label                  |
-| `zone_id`        | ❌       | `""`           | Zone ID for custom routing         |
-| `route_pattern`  | ❌       | `""`           | Route pattern (e.g. `api.x.com/*`) |
+| Variable            | Required | Default        | Description                        |
+|---------------------|----------|----------------|------------------------------------|
+| `account_id`        | ✅       | —              | Cloudflare Account ID              |
+| `api_token`         | ✅       | —              | API token (for enabling workers.dev) |
+| `worker_name`       | ✅       | —              | Worker script name                 |
+| `script_content`    | ✅       | —              | JavaScript source code             |
+| `workers_subdomain` | ✅       | —              | Your workers.dev subdomain         |
+| `environment`       | ❌       | `"production"` | Environment label                  |
+| `zone_id`           | ❌       | `""`           | Zone ID for custom domain routing  |
+| `route_pattern`     | ❌       | `""`           | Route pattern (e.g. `api.x.com/*`) |
+
+**Resources created:**
+- `cloudflare_workers_script` — The worker itself
+- `cloudflare_workers_route` — Custom domain route (optional)
+- `terraform_data` — Enables `*.workers.dev` via Cloudflare API
 
 **Outputs:** `worker_name`, `worker_url`
 
-### `modules/pages`
+---
 
-Deploys a Cloudflare Pages project for static frontend hosting.
+### `modules/pages` — Frontend
 
-| Variable               | Required | Default        | Description                          |
-| ---------------------- | -------- | -------------- | ------------------------------------ |
-| `account_id`           | ✅       | —              | Cloudflare Account ID                |
-| `project_name`         | ✅       | —              | Pages project name                   |
-| `production_branch`    | ❌       | `"main"`       | Git branch for production            |
-| `compatibility_date`   | ❌       | `"2026-03-01"` | Workers compat date                  |
-| `worker_url`           | ❌       | `""`           | Backend URL (injected as env var)    |
-| `environment_variables`| ❌       | `{}`           | Additional env vars                  |
-| `frontend_assets_path` | ❌       | `"../../"`     | Path to static files                 |
+Creates a Cloudflare Pages project with environment variables configured via `deployment_configs`.
+
+| Variable               | Required | Default        | Description                       |
+|------------------------|----------|----------------|-----------------------------------|
+| `account_id`           | ✅       | —              | Cloudflare Account ID             |
+| `project_name`         | ✅       | —              | Pages project name                |
+| `production_branch`    | ❌       | `"main"`       | Git branch for production         |
+| `compatibility_date`   | ❌       | `"2026-03-01"` | Workers compatibility date        |
+| `worker_url`           | ❌       | `""`           | Backend URL (injected as env var) |
+| `environment_variables`| ❌       | `{}`           | Additional environment variables  |
+
+**Resources created:**
+- `cloudflare_pages_project` — Pages project with `deployment_configs`
 
 **Outputs:** `pages_project_name`, `pages_url`, `pages_subdomain`
 
 ---
 
+## 🔄 How It Works End-to-End
+
+```mermaid
+flowchart LR
+    A[Developer] -->|./deploy.sh| B[Terraform]
+    B -->|Creates| C[Worker Script]
+    B -->|Creates| D[Pages Project]
+    B -->|API Call| E[Enable workers.dev]
+    B -->|Outputs| F[Worker URL]
+    F -->|Injected into| G[script.js]
+    G -->|Uploaded via Wrangler| D
+    D -->|Serves| H[Frontend<br>*.pages.dev]
+    C -->|Serves| I[Backend API<br>*.workers.dev]
+    H -->|fetch| I
+```
+
+**Data Flow:**
+1. User visits `https://mahesh-frontend.pages.dev`
+2. Browser loads `index.html`, `style.css`, `script.js` from Pages CDN
+3. User clicks "Call Backend" → `script.js` calls the Worker URL
+4. Worker at `https://mahesh-backend-worker.maheshbhoopathi.workers.dev` processes the request
+5. Response is displayed in the frontend
+
+---
+
 ## 🔄 Common Operations
 
-### Destroy All Resources
-
+### Destroy all resources
 ```bash
-cd terraform
-terraform destroy
+cd terraform && terraform destroy
 ```
 
-### Update Worker Code Only
-
+### Update Worker code only
 Edit `terraform/worker-src/index.js`, then:
-
 ```bash
-terraform apply -target=module.workers
+./deploy.sh
+# Or target just the worker:
+cd terraform && terraform apply -target=module.workers
 ```
 
-### Update Pages Config Only
-
+### Update frontend only
+Edit `index.html` / `style.css` / `script.js`, then:
 ```bash
-terraform apply -target=module.pages
+npx wrangler pages deploy ./_build --project-name=mahesh-frontend --branch=main
 ```
 
-### View Current State
-
+### View current outputs
 ```bash
-terraform show
-terraform output
+cd terraform && terraform output
 ```
+
+---
+
+## 🔒 Security Notes
+
+| Item | Status | Notes |
+|------|--------|-------|
+| API Token in `terraform.tfvars` | ✅ Gitignored | Never commit to version control |
+| `terraform.tfstate` | ✅ Gitignored | Contains sensitive data |
+| `.terraform/` | ✅ Gitignored | Provider binaries |
+| CORS Headers | ⚠️ Permissive | Currently `Access-Control-Allow-Origin: *` — restrict in production |
+---
 
 
