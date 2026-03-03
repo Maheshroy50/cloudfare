@@ -1,0 +1,19 @@
+# ──────────────────────────────────────────────────
+# terraform.tfvars.example
+# Copy to terraform.tfvars and fill in your values
+# ──────────────────────────────────────────────────
+
+# REQUIRED ─────────────────────────────────────────
+cloudflare_api_token  = "your-api-token-here"
+cloudflare_account_id = "your-account-id-here"
+workers_subdomain     = "your-workers-subdomain" # ← Find in dashboard → Workers & Pages
+
+# OPTIONAL (defaults shown) ────────────────────────
+# worker_name          = "mahesh-backend-worker"
+# pages_project_name   = "mahesh-frontend"
+# environment          = "production"
+# production_branch    = "main"
+
+# CUSTOM DOMAIN (leave empty if not using) ─────────
+# zone_id              = ""
+# worker_route_pattern = ""
